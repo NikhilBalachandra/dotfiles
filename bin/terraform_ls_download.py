@@ -2,7 +2,7 @@
 
 import os
 import argparse
-from nik_dotfile_helper import get_arch, get_platform, download_tool_from_archive
+from nik_dotfile_helper import get_arch, get_platform, download_tool, link_tool_bin
 
 DEFAULT_VERSION = "0.34.2"
 
@@ -19,8 +19,10 @@ if __name__ == "__main__":
 
     cache_file_name = f"terraform-ls_{version}_{system}_{arch}.zip"
     download_url = f"https://releases.hashicorp.com/terraform-ls/{version}/{cache_file_name}"
-    dest_bin_path = download_tool_from_archive(download_url, cache_file_name, "terraform-ls", "terraform-ls", force_download=force_download)
 
+    dest_bin_path = download_tool(download_url, cache_file_name, "terraform-ls", version, force_download=force_download)
+    link_tool_bin("terraform-ls", version, "terraform-ls", "terraform-ls")
+    
     # Confirm completion
     print(f"Terraform Language Server v{version} for {system} ({arch}) has been installed to {dest_bin_path}")
 

@@ -96,7 +96,20 @@ def download_file(url, cache_dir, file_name, force_download=False):
     return dest_file
 
 
-def create_cache_dir(dir_name):
+def create_local_bin():
+    """
+    Create a directory for executable files (creates ~/.local/bin/).
+
+    Returns:
+        str: Path to the created local bin directory.
+    """
+    home_dir = os.path.expanduser("~")
+    local_bin_dir = os.path.join(home_dir, ".local/bin/")
+    os.makedirs(local_bin_dir, exist_ok=True)
+    return local_bin_dir
+
+
+def create_cache_dir_for(dir_name):
     """
     Create a cache directory under ~/.local/cache/.
 
@@ -112,40 +125,64 @@ def create_cache_dir(dir_name):
     return dest_dir
 
 
-def create_local_bin():
+def get_opt_dir_for(name, version):
+    home_dir = os.path.expanduser("~")
+    return os.path.join(home_dir, ".local/opt/", name, version)
+
+
+def create_opt_dir_for(name, version):
     """
     Create a directory for executable files (creates ~/.local/bin/).
 
     Returns:
         str: Path to the created local bin directory.
     """
-    home_dir = os.path.expanduser("~")
-    local_bin_dir = os.path.join(home_dir, ".local/bin/")
-    os.makedirs(local_bin_dir, exist_ok=True)
-    return local_bin_dir
+    opt_dir = get_opt_dir_for(name, version)
+    os.makedirs(opt_dir, exist_ok=True)
+    return opt_dir
 
 
-def extract_from_archive(archive_file, path, dest_file):
+def extract_archive(archive_file, dest_dir, subdir=None):
     """
-    Extract a specific file from a zip/xz archive.
+    Extract all files from a zip/xz archive to ~/.local/opt.
 
     Args:
         archive_file (str): Path to the zip/xz archive.
-        path (str): Path to the file within the archive.
-        dest_file (str): Destination path for the extracted file.
     """
 
-    ext = os.path.splitext(archive_file)[1]
+    def remove_prefix(text, prefix):
+        return text[text.startswith(prefix) and len(prefix):]
+
+    def strip_prefix_and_extract(z, members):
+        if subdir is None:
+            z.extractall(dest_dir)
+            return
+
+        for file in members:
+            # Look for prefix in the file path
+            if file.path.startswith(subdir + '/'):
+                # Note: Cannot use os.path.join without leading slash
+                file.path = remove_prefix(file.path, subdir + '/')
+
+                # Skip if file is directory itself (which has empty path after stripping)
+                if len(file.path) == 0:
+                    continue
+
+                z.extract(file, dest_dir)
+
+    _, ext = os.path.splitext(archive_file)
+    if len(ext) == 0:
+        raise ValueError(f"No extension found in the archive file {archive_file}")
 
     if ext == ".zip":
         with zipfile.ZipFile(archive_file) as z:
-            with open(dest_file, 'wb') as f:
-                f.write(z.read(path))
+            strip_prefix_and_extract(z, z.filelist)
     elif ext == ".xz":
         with tarfile.open(archive_file, 'r:xz') as z:
-            with open(dest_file, 'wb') as f:
-                r = z.extractfile(path)
-                f.write(r.read())
+            strip_prefix_and_extract(z, z.getmembers())
+    elif ext == ".gz":
+        with tarfile.open(archive_file, 'r:gz') as z:
+            strip_prefix_and_extract(z, z.getmembers())
     else:
         raise NotImplementedError(f"{ext} archive file is unsupported")
 
@@ -161,7 +198,7 @@ def make_file_exec(path):
     os.chmod(path, st.st_mode | stat.S_IEXEC)
 
 
-def download_tool_archive(url, cache_dir_name, cache_file_name, path_in_archive, name, force_download=False):
+def download_tool(url, cache_file_name, name, version, subdir=None, force_download=False):
     """
     Download an archive file, extract a tool from it, and move it to ~/.local/bin/.
 
@@ -171,42 +208,31 @@ def download_tool_archive(url, cache_dir_name, cache_file_name, path_in_archive,
             ~/.local/cache/{cache_dir_name}
         cache_file_name (str): Name of the archive file. File is saved as
             ~/.local/cache/{cache_dir_name}/{cache_file_name}
-        path_in_archive (str): Path to the tool within the archive.
+        name (str): Path to the tool within the archive.
         name (str): Name of the tool to be placed in ~/.local/bin/.
         force_download (bool): Whether to force re-download of the file.
 
     Returns:
         str: Path to the installed tool in ~/.local/bin/.
     """
+    home_dir = os.path.expanduser("~")
+    cache_dir = create_cache_dir_for(name)
+    archive_file = download_file(url, cache_dir, cache_file_name, force_download=force_download)
+    tool_dir = os.path.join(home_dir, ".local/opt/", name, version)
+    os.makedirs(tool_dir, exist_ok=True)
+    
+    extract_archive(archive_file, tool_dir, subdir=subdir)
+    return tool_dir
 
-    cache_dir = create_cache_dir(cache_dir_name)
-    dest_file = download_file(url, cache_dir, cache_file_name, force_download=force_download)
-    local_bin_dir = create_local_bin()
-    dest_bin_path = os.path.join(local_bin_dir, name)
-    extract_from_archive(dest_file, path_in_archive, dest_bin_path)
-    make_file_exec(dest_bin_path)
-    return dest_bin_path
 
-
-def download_tool_from_archive(url, cache_file_name, tool_name, archive_path, force_download=False):
-    """
-    Download and extract a tool from an archive and move it to ~/.local/bin/.
-
-    Assumes the following archive structure:
-    1) Zip archive
-    2) Tool {tool_name} is present in the root of the archive file.
-    3) No other files are required.
-
-    Args:
-        url (str): URL of the archive file.
-        cache_file_name (str): Name of the archive file.
-        tool_name (str): Name of the tool.
-        archive_path (str): Path to the file within archive.
-        force_download (bool): Whether to force re-download of the file.
-
-    Returns:
-        str: Path to the installed tool in ~/.local/bin/.
-    """
-
-    dest_bin_path = download_tool_archive(url, tool_name, cache_file_name, archive_path, tool_name, force_download=force_download)
-    return dest_bin_path
+def link_tool_bin(tool_name, version, bin_name, bin_path):
+    bin_dir = create_local_bin()
+    tool_dir = get_opt_dir_for(tool_name, version)
+    bin_path = os.path.join(tool_dir, bin_path)
+    symlink_path = os.path.join(bin_dir, bin_name)
+    if os.path.exists(symlink_path):
+        if os.path.islink(symlink_path):
+            os.remove(symlink_path)
+        else:
+            raise FileExistsError(f"File {symlink_path} already exists. Please remove it first.")
+    os.symlink(bin_path, symlink_path)

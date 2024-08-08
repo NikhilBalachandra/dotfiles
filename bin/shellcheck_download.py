@@ -2,7 +2,7 @@
 
 import os
 import argparse
-from nik_dotfile_helper import get_arch, get_platform, download_tool_from_archive
+from nik_dotfile_helper import get_arch, get_platform, download_tool, link_tool_bin
 
 DEFAULT_VERSION = "0.10.0"
 
@@ -19,7 +19,8 @@ if __name__ == "__main__":
 
     cache_file_name = f"shellcheck-v{version}.{system}.{arch}.tar.xz"
     download_url = f"https://github.com/koalaman/shellcheck/releases/download/v{version}/{cache_file_name}"
-    dest_bin_path = download_tool_from_archive(download_url, cache_file_name, "shellcheck", f"shellcheck-v{version}/shellcheck", force_download=force_download)
+    dest_bin_path = download_tool(download_url, cache_file_name, "shellcheck", version, subdir=f"shellcheck-v{version}", force_download=force_download)
+    link_tool_bin("shellcheck", version, "shellcheck", "shellcheck")
 
     # Confirm completion
     print(f"Shellcheck v{version} for {system} ({arch}) has been installed to {dest_bin_path}")
